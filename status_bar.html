@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>状态栏</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+.status-bar { font-family:'Segoe UI',sans-serif; font-size:13px; color:#333; line-height:1.6; max-width:680px; margin:8px auto; }
+
+.sb-card { background:#fff; border-radius:12px; border:1px solid rgba(0,0,0,0.08); padding:16px 20px; margin-bottom:10px; }
+.sb-card.npc { border-color:rgba(212,83,126,0.2); background:#fdf8fa; }
+
+.sb-header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.sb-avatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:500; flex-shrink:0; }
+.sb-avatar.main { background:#EEEDFE; color:#534AB7; border:1.5px solid #7F77DD; }
+.sb-avatar.npc { background:#F4C0D1; color:#72243E; border:1.5px solid #D4537E; }
+.sb-name { font-size:15px; font-weight:500; color:#333; }
+.sb-sub { font-size:12px; color:#888; }
+.sb-quote { font-size:11px; color:#993556; font-style:italic; margin-top:2px; }
+
+.sb-tags { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
+.sb-tag { padding:3px 10px; border-radius:4px; font-size:11px; border:0.5px solid; }
+.sb-tag.warn { background:#FAEEDA; color:#854F0B; border-color:#EF9F27; }
+.sb-tag.danger { background:#FAECE7; color:#993C1D; border-color:#D85A30; }
+.sb-tag.info { background:#E6F1FB; color:#0C447C; border-color:#378ADD; }
+.sb-tag.gray { background:#F1EFE8; color:#5F5E5A; border-color:#B4B2A9; }
+.sb-tag.pink { background:#FBEAF0; color:#993556; border-color:#D4537E; }
+.sb-tag.success { background:#E1F5EE; color:#085041; border-color:#5DCAA5; }
+
+.sb-divider { height:0.5px; background:rgba(0,0,0,0.08); margin:10px 0; }
+.sb-card.npc .sb-divider { background:rgba(212,83,126,0.15); }
+
+.sb-label { font-size:11px; color:#888; margin-bottom:2px; }
+.sb-value { font-size:13px; font-weight:500; color:#333; }
+.sb-value.purple { color:#534AB7; }
+.sb-value.pink { color:#D4537E; }
+.sb-value.green { color:#0F6E56; }
+.sb-value.red { color:#E24B4A; }
+.sb-value.orange { color:#854F0B; }
+
+.sb-bar-wrap { width:100%; height:8px; border-radius:4px; background:#F1EFE8; margin:4px 0 8px; overflow:hidden; }
+.sb-bar-fill { height:100%; border-radius:4px; transition:width 0.3s; }
+.sb-bar-fill.purple { background:#7F77DD; }
+.sb-bar-fill.red { background:#E24B4A; }
+.sb-bar-fill.orange { background:#EF9F27; }
+.sb-bar-fill.pink { background:#ED93B1; }
+.sb-bar-fill.green { background:#5DCAA5; }
+.sb-bar-fill.gray { background:#B4B2A9; }
+
+.sb-bar-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:1px; }
+
+.sb-attrs { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin:6px 0; }
+.sb-attr-item { text-align:center; }
+.sb-attr-label { font-size:11px; color:#888; }
+.sb-attr-val { font-size:15px; font-weight:500; }
+
+.sb-equip { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0; }
+.sb-equip-slot { padding:5px 12px; border-radius:6px; background:#F1EFE8; border:0.5px solid #B4B2A9; font-size:12px; color:#555; }
+.sb-equip-slot.empty { color:#aaa; }
+
+.sb-route { display:flex; align-items:center; justify-content:space-between; margin:8px 0; }
+.sb-route-node { display:flex; flex-direction:column; align-items:center; gap:3px; }
+.sb-route-dot { width:12px; height:12px; border-radius:50%; }
+.sb-route-dot.active { background:#ED93B1; }
+.sb-route-dot.inactive { background:#F1EFE8; border:1px solid #B4B2A9; }
+.sb-route-label { font-size:10px; color:#888; }
+.sb-route-label.active { color:#993556; }
+.sb-route-line { flex:1; height:1px; border-top:1px dashed #F4C0D1; margin:0 4px; }
+
+.sb-info-box { background:#F1EFE8; border:0.5px solid #B4B2A9; border-radius:6px; padding:8px 12px; margin:6px 0; }
+.sb-info-line { font-size:11px; color:#5F5E5A; line-height:1.8; }
+
+.sb-footer { font-size:11px; color:#888; margin-top:8px; padding-top:8px; border-top:0.5px solid rgba(0,0,0,0.08); }
+.sb-card.npc .sb-footer { border-top-color:rgba(212,83,126,0.15); color:#993556; }
+
+.sb-debug { font-size:11px; color:#999; padding:8px; background:#f5f5f5; border-radius:6px; margin-top:6px; }
+.sb-hidden { display:none; }
+</style>
+</head>
+<body>
+
+<div id="status-bar-container" class="status-bar"></div>
+
+<script>
+(function() {
+  // 兼容多种 SillyTavern / Tavern Helper 变量存储位置
+  function getVariables() {
+    var v = null;
+    try {
+      // 新版 Tavern Helper 直接在 context.variables
+      if (typeof SillyTavern !== 'undefined' && typeof getContext === 'function') {
+        var ctx = getContext();
+        if (ctx && ctx.variables) {
+          v = ctx.variables;
+        }
+        // 旧版：在 chat 最后一条的 variables 里
+        if (!v && ctx && ctx.chat && ctx.chat.length > 0) {
+          var last = ctx.chat[ctx.chat.length - 1];
+          if (last && last.variables) v = last.variables;
+        }
+      }
+      // 兜底：全局变量
+      if (!v && typeof window !== 'undefined' && window.sillyTavernVariables) {
+        v = window.sillyTavernVariables;
+      }
+      if (!v && typeof window !== 'undefined' && window.variables) {
+        v = window.variables;
+      }
+    } catch(e) {}
+    return v;
+  }
+
+  function pct(cur, max) {
+    if (!max || max <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((cur / max) * 100)));
+  }
+
+  function tag(text, cls) {
+    if (!text) return '';
+    return '<span class="sb-tag ' + (cls||'gray') + '">' + text + '</span>';
+  }
+
+  function bar(label, val, max, color, suffix) {
+    var p = pct(val, max);
+    var s = suffix || '';
+    var statusText = '';
+    if (p < 10) statusText = '枯竭';
+    else if (p < 30) statusText = '重伤';
+    else if (p < 60) statusText = '虚弱';
+    else if (p < 90) statusText = '良好';
+    else statusText = '充沛';
+    return '<div class="sb-bar-row"><span class="sb-label">' + label + '</span>' +
+      '<span class="sb-value ' + color + '">' + val + ' / ' + max + s + '</span></div>' +
+      '<div class="sb-bar-wrap"><div class="sb-bar-fill ' + color + '" style="width:' + p + '%"></div></div>';
+  }
+
+  function renderMain(v) {
+    if (!v) return '<div class="sb-card">变量加载中...<br><span style="font-size:11px;color:#999">请确认已启用 Tavern Helper 的 MVU 脚本，并选择第三幕开场</span></div>';
+    
+    var info = v.个人信息 || {};
+    var cult = v.修炼信息 || {};
+    var equip = v.装备信息 || {};
+    var action = v.角色行动 || {};
+    var ability = v.能力信息 || {};
+    var identity = v.身份信息 || {};
+    var traits = v.命格特质 || {};
+    var bonds = v.羁绊信息 || {};
+    
+    var html = '<div class="sb-card">';
+    
+    // 头部
+    html += '<div class="sb-header">';
+    html += '<div class="sb-avatar main">余</div>';
+    html += '<div><div class="sb-name">余燃</div>';
+    html += '<div class="sb-sub">温天仁 · 六道传人 · ' + (cult.境界 || '结丹后期巅峰') + '</div></div>';
+    html += '<div class="sb-tags">';
+    if ((info.生命状态 || 0) < 40) html += tag('重伤', 'warn');
+    html += tag('六道夺舍危机', 'danger');
+    html += tag('剧透神力', 'info');
+    html += '</div></div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 进度条
+    html += bar('修为', cult.境界层数 || 9, 10, 'purple');
+    html += bar('灵力', cult.当前灵力 || 5, 1000, 'red');
+    html += bar('生命', info.生命状态 || 30, 100, 'orange');
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 属性
+    html += '<div class="sb-label">属性</div>';
+    html += '<div class="sb-attrs">';
+    var ab = ((ability.武学 || {}).数值) || 0;
+    var ac = ((ability.才学 || {}).数值) || 0;
+    var ch = ((ability.魅力 || {}).数值) || 0;
+    var lu = ((ability.机缘 || {}).数值) || 0;
+    var td = ability.天道指数 || 1.0;
+    html += '<div class="sb-attr-item"><div class="sb-attr-label">武学</div><div class="sb-attr-val purple">' + ab + '</div></div>';
+    html += '<div class="sb-attr-item"><div class="sb-attr-label">才学</div><div class="sb-attr-val purple">' + ac + '</div></div>';
+    html += '<div class="sb-attr-item"><div class="sb-attr-label">魅力</div><div class="sb-attr-val purple">' + ch + '</div></div>';
+    html += '<div class="sb-attr-item"><div class="sb-attr-label">机缘</div><div class="sb-attr-val pink">' + lu + '</div></div>';
+    html += '<div class="sb-attr-item"><div class="sb-attr-label">天道指数</div><div class="sb-attr-val green">' + td + '</div></div>';
+    html += '</div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 装备
+    html += '<div class="sb-label">当前装备</div>';
+    html += '<div class="sb-equip">';
+    html += '<div class="sb-equip-slot">' + (((equip.法器 || {}).名称) || '无') + '</div>';
+    html += '<div class="sb-equip-slot ' + ((equip.武器 || {}).名称 ? '' : 'empty') + '">武器：' + (((equip.武器 || {}).名称) || '无') + '</div>';
+    html += '<div class="sb-equip-slot ' + ((equip.防具 || {}).名称 ? '' : 'empty') + '">防具：' + (((equip.防具 || {}).名称) || '无') + '</div>';
+    var bag = equip.储物囊 || {};
+    var bagCount = 0;
+    for (var bk in bag) { if (Object.prototype.hasOwnProperty.call(bag, bk)) bagCount++; }
+    html += '<div class="sb-equip-slot ' + (bagCount ? '' : 'empty') + '">储物囊：' + (bagCount ? bagCount + '件' : '空') + '</div>';
+    html += '</div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 位置
+    html += '<div class="sb-bar-row"><span class="sb-label">所在位置</span><span class="sb-value">' + (action.当前位置 || '阴冥之地') + '</span></div>';
+    html += '<div class="sb-bar-row"><span class="sb-label">当前目标</span><span class="sb-value">' + (action.当前目标 || '恢复灵力，离开阴冥之地') + '</span></div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 命格特质
+    html += '<div class="sb-label">命格特质</div>';
+    html += '<div class="sb-tags" style="margin-left:0;margin-top:4px">';
+    for (var k in traits) {
+      if (!Object.prototype.hasOwnProperty.call(traits, k)) continue;
+      var cls = 'info';
+      if (k.indexOf('避祸') !== -1 || k.indexOf('危机') !== -1) cls = 'danger';
+      else if (k.indexOf('穿越') !== -1) cls = 'info';
+      else if (k.indexOf('六道') !== -1) cls = 'pink';
+      else if (k.indexOf('机缘') !== -1 || k.indexOf('气运') !== -1) cls = 'success';
+      html += tag(k, cls);
+    }
+    html += '</div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 道侣羁绊
+    html += '<div class="sb-label">道侣羁绊</div>';
+    html += '<div class="sb-equip" style="margin-top:4px">';
+    var bondCount = 0;
+    for (var bkey in bonds) {
+      if (!Object.prototype.hasOwnProperty.call(bonds, bkey)) continue;
+      var b = bonds[bkey];
+      if (b && typeof b === 'object') {
+        var heart = b.好感度 !== undefined ? b.好感度 : '?';
+        var level = b.羁绊等级 || 'Lv.0';
+        html += '<div class="sb-equip-slot">' + bkey + ' · ' + level + ' · 好感' + heart + '</div>';
+        bondCount++;
+      }
+    }
+    if (bondCount === 0) {
+      html += '<div class="sb-equip-slot empty">尚未结识任何道侣</div>';
+    }
+    html += '</div>';
+    
+    html += '<div class="sb-footer">系统提示：化神后期飞升可返回原世界 · 当前差' + (10 - (cult.境界层数 || 9)) + '个大境界</div>';
+    
+    html += '</div>';
+    return html;
+  }
+
+  function renderNPC(v) {
+    if (!v || !v.当前NPC) return '';
+    var npc = v.当前NPC;
+    if (!npc.姓名) return '';
+    
+    var html = '<div class="sb-card npc">';
+    
+    // 头部
+    html += '<div class="sb-header">';
+    var initial = npc.姓名.charAt(0);
+    html += '<div class="sb-avatar npc">' + initial + '</div>';
+    html += '<div><div class="sb-name">' + npc.姓名 + '</div>';
+    html += '<div class="sb-sub">' + (npc.身份 || '') + ' · ' + (npc.修为 || '') + '</div>';
+    if (npc.台词) html += '<div class="sb-quote">"' + npc.台词 + '"</div>';
+    html += '</div>';
+    html += '<div class="sb-tags">';
+    if (npc.感情状态) html += tag(npc.感情状态, 'gray');
+    if (npc.当前处境) html += tag(npc.当前处境, 'warn');
+    html += '</div></div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 好感度
+    var favor = npc.好感度 || 0;
+    var favorPct = Math.max(0, Math.min(100, ((favor + 50) / 150) * 100));
+    var favorColor = 'red';
+    var favorText = '敌对';
+    if (favor >= 80) { favorColor = 'pink'; favorText = '倾心'; }
+    else if (favor >= 50) { favorColor = 'pink'; favorText = '好感'; }
+    else if (favor >= 20) { favorColor = 'gray'; favorText = '友善'; }
+    else if (favor >= 0) { favorColor = 'gray'; favorText = '中立'; }
+    else if (favor >= -20) { favorColor = 'orange'; favorText = '警惕'; }
+    
+    html += '<div class="sb-bar-row"><span class="sb-label">好感度</span><span class="sb-value ' + favorColor + '">' + favor + ' / 100 · ' + favorText + '</span></div>';
+    html += '<div class="sb-bar-wrap"><div class="sb-bar-fill ' + favorColor + '" style="width:' + favorPct + '%"></div></div>';
+    
+    // 羁绊等级
+    html += '<div class="sb-bar-row"><span class="sb-label">羁绊等级</span><span class="sb-value">' + (npc.羁绊等级 || 'Lv.0 陌路') + '</span></div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 情绪
+    html += '<div class="sb-label">当前情绪</div>';
+    html += '<div class="sb-tags" style="margin-left:0;margin-top:4px">';
+    if (npc.情绪 && Array.isArray(npc.情绪)) {
+      npc.情绪.forEach(function(e) { html += tag(e, 'warn'); });
+    }
+    html += '</div>';
+    
+    // 对余燃认知
+    html += '<div class="sb-label" style="margin-top:6px">对余燃认知</div>';
+    html += '<div class="sb-tags" style="margin-left:0;margin-top:4px">';
+    if (npc.认知 && Array.isArray(npc.认知)) {
+      npc.认知.forEach(function(c) { html += tag(c, 'danger'); });
+    }
+    html += '</div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 攻略路线
+    html += '<div class="sb-label">攻略路线</div>';
+    html += '<div class="sb-route">';
+    var stages = ['陌路', '认识', '信任', '依赖', '道侣'];
+    var currentStage = npc.攻略阶段 || 0;
+    stages.forEach(function(s, i) {
+      var active = i <= currentStage;
+      html += '<div class="sb-route-node">';
+      html += '<div class="sb-route-dot ' + (active ? 'active' : 'inactive') + '"></div>';
+      html += '<div class="sb-route-label ' + (active ? 'active' : '') + '">' + s + '</div>';
+      html += '</div>';
+      if (i < stages.length - 1) html += '<div class="sb-route-line"></div>';
+    });
+    html += '</div>';
+    
+    html += '<div class="sb-divider"></div>';
+    
+    // 战力信息
+    html += '<div class="sb-label">战力信息</div>';
+    html += '<div class="sb-info-box">';
+    html += '<div class="sb-info-line">修为：' + (npc.修为 || '未知') + ' · 状态：' + (npc.状态 || '未知') + '</div>';
+    html += '<div class="sb-info-line">功法：' + (npc.功法 || '未知') + '</div>';
+    html += '<div class="sb-info-line">法宝：' + (npc.法宝 || '未知') + '</div>';
+    html += '</div>';
+    
+    // 关键情报
+    if (npc.关键情报) {
+      html += '<div class="sb-label" style="margin-top:6px">关键情报（剧透神力）</div>';
+      html += '<div class="sb-info-box">';
+      if (Array.isArray(npc.关键情报)) {
+        npc.关键情报.forEach(function(info) {
+          html += '<div class="sb-info-line">· ' + info + '</div>';
+        });
+      } else {
+        html += '<div class="sb-info-line">· ' + npc.关键情报 + '</div>';
+      }
+      html += '</div>';
+    }
+    
+    html += '<div class="sb-footer">互动提示：' + (npc.互动提示 || '根据NPC情绪选择合适的互动方式') + '</div>';
+    
+    html += '</div>';
+    return html;
+  }
+
+  function update() {
+    var container = document.getElementById('status-bar-container');
+    if (!container) return;
+    var v = getVariables();
+    var html = renderMain(v);
+    var npcHtml = renderNPC(v);
+    if (npcHtml) html += npcHtml;
+    container.innerHTML = html;
+  }
+
+  function init() {
+    update();
+    try {
+      if (typeof eventOn === 'function') {
+        eventOn('message_received', update);
+        eventOn('message_updated', update);
+        eventOn('character_changed', update);
+        eventOn('variables_changed', update);
+      }
+    } catch(e) {}
+    setInterval(update, 2000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
